@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Viewer</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .video-card {
+            margin: 10px 0;
+        }
+
+        .video-card video {
+            width: 100%; /* Full width of the card */
+            height: auto; /* Maintain aspect ratio */
+        }
+
+        .platform {
+            font-size: 14px;
+            text-align: center;
+            margin-top: 5px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center">Multi-Viewer</h1>
+        <div class="form-group">
+            <label for="urlType">Select URL Type:</label>
+            <select id="urlType" class="form-control" onchange="fetchLanguages(this.value)">
+                <option value="avc_url">AVC URLs</option>
+                <option value="emtmol">EMTMOL URLs</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="language">Select Language:</label>
+            <select id="language" class="form-control" onchange="fetchHLSUrls()">
+                <option value="" selected disabled>Select Language</option>
+                <!-- Options will be populated dynamically from JavaScript -->
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="layout">Select Layout:</label>
+            <select id="layout" class="form-control" onchange="fetchHLSUrls()">
+                <option value="3">4 per row</option>
+                <option value="4">3 per row</option>
+                <option value="6">2 per row</option>
+                <option value="12">1 per row</option>
+            </select>
+        </div>
+        <div class="row" id="videos"></div>
+        <div class="mt-4">
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="form-group">
+                    <input type="file" name="csvFile" id="csvFile" class="form-control-file" accept=".csv">
+                </div>
+                <button type="button" class="btn btn-primary" onclick="uploadCSV()">Upload</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function fetchLanguages(urlType) {
+            fetch(`/api/languages?urlType=${urlType}`)
+                .then(response => response.json())
+                .then(data => {
+                    const languageDropdown = document.getElementById('language');
+                    languageDropdown.innerHTML = '<option value="" selected disabled>Select Language</option>'; // Reset options
+                    data.languages.forEach(language => {
+                        const option = document.createElement('option');
+                        option.value = language;
+                        option.textContent = language;
+                        languageDropdown.appendChild(option);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function fetchHLSUrls() {
+            const urlType = document.getElementById('urlType').value;
+            const language = document.getElementById('language').value;
+            const layout = document.getElementById('layout').value;
+
+            // Update URL with selected parameters
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('urlType', urlType);
+            newUrl.searchParams.set('language', language);
+            newUrl.searchParams.set('layout', layout);
+            history.pushState(null, '', newUrl);
+
+            fetch(`/api/hls_urls?language=${language}&urlType=${urlType}`)
+                .then(response => response.json())
+                .then(data => {
+                    const videosDiv = document.getElementById('videos');
+                    videosDiv.innerHTML = ''; // Clear previous videos
+                    data.hls_data.forEach(entry => {
+                        const col = document.createElement('div');
+                        col.className = `col-md-${layout}`; // Dynamic layout
+                        const card = document.createElement('div');
+                        card.className = 'card video-card';
+                        const video = document.createElement('video');
+                        if (Hls.isSupported()) {
+                            const hls = new Hls();
+                            hls.loadSource(entry.url);
+                            hls.attachMedia(video);
+                        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                            video.src = entry.url;
+                        } else {
+                            console.error('HLS not supported');
+                        }
+                        video.controls = true;
+                        card.appendChild(video);
+                        const platform = document.createElement('div');
+                        platform.textContent = entry.platform;
+                        platform.className = 'platform';
+                        card.appendChild(platform);
+                        col.appendChild(card);
+                        videosDiv.appendChild(col);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function uploadCSV() {
+            const form = document.getElementById('uploadForm');
+            const formData = new FormData(form);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('File uploaded successfully');
+                // Fetch languages for the default URL type (avc_url) after upload
+                fetchLanguages('avc_url');
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        // Fetch languages for the URL type from URL parameters or default to 'avc_url' on page load
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlType = urlParams.get('urlType') || 'avc_url';
+            const language = urlParams.get('language');
+            const layout = urlParams.get('layout') || '3';
+
+            document.getElementById('urlType').value = urlType;
+            document.getElementById('layout').value = layout;
+            fetchLanguages(urlType);
+
+            if (language) {
+                document.getElementById('language').value = language;
+                fetchHLSUrls();
+            }
+        };
+    </script>
+</body>
+</html>
